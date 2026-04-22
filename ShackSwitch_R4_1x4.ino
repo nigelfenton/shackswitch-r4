@@ -407,7 +407,7 @@ void agLoop() {
     bcast[3] = 255;  // assumes /24 subnet — works for 10.0.0.x
     char beacon[128];
     snprintf(beacon, sizeof(beacon),
-      "AG ip=%s port=%d v=1.0 serial=SS-1x4 name=ShackSwitch ports=1 antennas=%d\r\n",
+      "AG ip=%s port=%d v=1.0 serial=G0JKN-SS-R4 name=ShackSwitch ports=1 antennas=%d\r\n",
       WiFi.localIP().toString().c_str(), AG_PORT, NUM_PORTS);
     agUdp.beginPacket(bcast, AG_PORT);
     agUdp.print(beacon);
@@ -442,7 +442,6 @@ void parseDiscovery(char* buf, int len) {
   // FlexRadio beacons have a ~28-byte binary VITA-49 header then ASCII fields.
   // Use binary-safe search so null bytes in the header don't fool strstr.
   int start = memfind(buf, len, "model=FLEX", 10);
-  Serial.print(F("disc start=")); Serial.println(start);  // -1 = not found
   if (start < 0) return;
 
   // From the ASCII payload onward, buf is null-terminated (pkt[n]='\0' in flexLoop)
@@ -517,15 +516,6 @@ void flexLoop() {
     char pkt[512];
     int  n = flexUdp.read(pkt, min(pktLen, 511));
     pkt[n] = '\0';
-    // Hex dump — remove once discovery is working
-    Serial.print(F("UDP4992 ")); Serial.print(n); Serial.print(F("b from "));
-    Serial.print(flexUdp.remoteIP()); Serial.print(F(": "));
-    char hx[4];
-    for (int j = 0; j < min(n, 80); j++) {
-      snprintf(hx, sizeof(hx), "%02X ", (uint8_t)pkt[j]);
-      Serial.print(hx);
-    }
-    Serial.println();
     parseDiscovery(pkt, n);
   }
 
@@ -556,7 +546,6 @@ void flexLoop() {
     char ch = flexClient.read();
     if (ch == '\n') {
       if (flexLineBuf.length() > 0) {
-        Serial.print(F("Flex< ")); Serial.println(flexLineBuf);  // debug
         parseFlexLine(flexLineBuf);
         flexLineBuf = "";
       }
@@ -712,6 +701,17 @@ void sendSettingsPage(WiFiClient& c) {
     "td{padding:6px 8px}"
     "select{background:#0f1e30;color:#dde6f0;border:1px solid #1c2a40;"
     "border-radius:4px;padding:4px 8px;font-size:13px}"
+    ".mwrap{overflow-x:auto}"
+    ".mtbl{border-collapse:separate;border-spacing:3px}"
+    ".mbh{color:#6b8099;font-size:10px;text-align:center;padding:3px 6px;"
+    "background:#0b1220;border-radius:3px;min-width:50px;white-space:nowrap}"
+    ".mband{color:#00d8ef;font-size:12px;font-weight:700;"
+    "padding:3px 10px 3px 0;text-align:right;white-space:nowrap}"
+    ".mdot{display:block;width:50px;height:30px;text-align:center;line-height:30px;"
+    "border-radius:4px;font-size:18px;color:rgba(255,255,255,.18);"
+    "background:rgba(255,255,255,.04);text-decoration:none}"
+    ".mdot:hover{background:rgba(0,216,239,.2)}"
+    ".mdot.on{background:#00d8ef;color:#0a0e14;font-size:14px}"
     "</style></head><body>"));
 
   c.print(F("<h1>G0JKN ShackSwitch &mdash; Settings</h1>"));
@@ -724,7 +724,7 @@ void sendSettingsPage(WiFiClient& c) {
   // Tab bar
   c.print(F("<div class='tabs'>"
     "<a href='#antennas' class='tb'>Antennas</a>"
-    "<a href='#bandmap' class='tb'>Band Map</a>"
+    "<a href='#bandmap' class='tb'>Antenna Map</a>"
     "<a href='#radios' class='tb'>Radios</a>"
     "<a href='#wifi' class='tb'>WiFi</a>"
     "</div>"));
@@ -743,31 +743,42 @@ void sendSettingsPage(WiFiClient& c) {
   }
   c.print(F("<input type='submit' class='save' value='Save'></form></div></div>"));
 
-  // ── Tab: Band Map ──────────────────────────────────────────────────────────
-  c.print(F("<div id='bandmap' class='tp'><div class='card'><h2>Band &rarr; Antenna Map</h2>"
-    "<table><tr><th>Band</th><th>Antenna</th></tr>"));
-  for (int i = 0; i < NUM_BANDS; i++) {
-    c.print(F("<tr><td>"));
-    c.print(BANDS[i].name);
-    c.print(F("</td><td><form action='/bandmap' method='get' style='display:inline'>"
-      "<input type='hidden' name='band' value='"));
-    c.print(BANDS[i].name);
-    c.print(F("'><select name='port' onchange='this.form.submit()'>"));
-    c.print(F("<option value='0'"));
-    if (g_bandMap[i] == 0) c.print(F(" selected"));
-    c.print(F(">&mdash;</option>"));
-    for (int p = 1; p <= NUM_PORTS; p++) {
-      c.print(F("<option value='"));
-      c.print(p);
-      c.print(F("'"));
-      if (g_bandMap[i] == p) c.print(F(" selected"));
-      c.print(F(">"));
-      c.print(g_antName[p - 1]);
-      c.print(F("</option>"));
-    }
-    c.print(F("</select></form></td></tr>"));
+  // ── Tab: Antenna Map ───────────────────────────────────────────────────────
+  c.print(F("<div id='bandmap' class='tp'><div class='card'><h2>Antenna Map</h2>"
+    "<div class='mwrap'><table class='mtbl'><tr><th></th>"
+    "<th class='mbh'>&mdash;</th>"));
+  for (int p = 1; p <= NUM_PORTS; p++) {
+    c.print(F("<th class='mbh'>"));
+    c.print(p);
+    c.print(F(" &middot; "));
+    c.print(g_antName[p - 1]);
+    c.print(F("</th>"));
   }
-  c.print(F("</table></div></div>"));
+  c.print(F("</tr>"));
+  for (int i = 0; i < NUM_BANDS; i++) {
+    c.print(F("<tr><td class='mband'>"));
+    c.print(BANDS[i].name);
+    c.print(F("</td><td><a href='/bandmap?band="));
+    c.print(BANDS[i].name);
+    c.print(F("&port=0' class='mdot"));
+    if (g_bandMap[i] == 0) c.print(F(" on"));
+    c.print(F("'>"));
+    c.print(g_bandMap[i] == 0 ? F("&#9679;") : F("&middot;"));
+    c.print(F("</a></td>"));
+    for (int p = 1; p <= NUM_PORTS; p++) {
+      c.print(F("<td><a href='/bandmap?band="));
+      c.print(BANDS[i].name);
+      c.print(F("&port="));
+      c.print(p);
+      c.print(F("' class='mdot"));
+      if (g_bandMap[i] == p) c.print(F(" on"));
+      c.print(F("'>"));
+      c.print(g_bandMap[i] == p ? F("&#9679;") : F("&middot;"));
+      c.print(F("</a></td>"));
+    }
+    c.print(F("</tr>"));
+  }
+  c.print(F("</table></div></div></div>"));
 
   // ── Tab: Radios ────────────────────────────────────────────────────────────
   c.print(F("<div id='radios' class='tp'><div class='card'><h2>Discovered Radios</h2>"));
@@ -998,7 +1009,7 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     httpServer.begin();
     agServer.begin();
-    agUdp.begin(AG_PORT);
+    agUdp.begin(AG_PORT + 1);  // local port 9008 — avoids clash with TCP server on 9007
     int flexUdpOk = flexUdp.begin(4992);
     Serial.print(F("flexUdp port 4992: "));
     Serial.println(flexUdpOk ? F("OK") : F("FAILED"));
@@ -1026,6 +1037,7 @@ void loop() {
       if (WiFi.status() == WL_CONNECTED) {
         httpServer.begin();
         agServer.begin();
+        agUdp.begin(AG_PORT + 1);
       }
     }
   }
