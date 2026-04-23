@@ -111,6 +111,8 @@ unsigned long lastFlexCheck = 0;
 // ── Forward declarations ───────────────────────────────────────────────────────
 void agPushStatus();
 void selectPort(int port);
+void nxtSetPort(int port);
+void nxtSetBand(const char* band);
 
 // ── EEPROM helpers ─────────────────────────────────────────────────────────────
 void eepromReadStr(int addr, char* buf, int maxLen) {
@@ -218,6 +220,7 @@ void selectPort(int port) {
     digitalWrite(RELAY_PINS[i], (port == i + 1) ? HIGH : LOW);
   g_activePort = port;
   updateMatrix(port);
+  nxtSetPort(port);
   agPushStatus();
   Serial.print(F("Port: "));
   Serial.println(port);
@@ -241,6 +244,7 @@ void setBand(const char* bandName) {
   int idx = bandIndex(bandName);
   if (idx < 0) return;
   strncpy(g_band, bandName, sizeof(g_band) - 1);
+  nxtSetBand(g_band);
   Serial.print(F("Band: ")); Serial.println(g_band);
   int port = g_bandMap[idx];
   if (port >= 1 && port <= NUM_PORTS) selectPort(port);
@@ -552,6 +556,93 @@ void flexLoop() {
     } else if (ch != '\r') {
       if (flexLineBuf.length() < 511) flexLineBuf += ch;
     }
+  }
+}
+
+// ── Nextion display driver (Serial1 = D0/D1, page 0 = splash, page 1 = main) ──
+
+#define NXT_BAUD 9600
+
+// Component IDs on page 1 — update to match actual HMI after building in Nextion Editor
+#define NXT_PAGE_MAIN   1
+#define NXT_BTN1_ID     1   // bt1
+#define NXT_BTN2_ID     2   // bt2
+#define NXT_BTN3_ID     3   // bt3
+#define NXT_BTN4_ID     4   // bt4
+#define NXT_BTN5_ID     5   // bt5
+#define NXT_BTN6_ID     6   // bt6
+#define NXT_BTN7_ID     7   // bt7
+#define NXT_BTN8_ID     8   // bt8
+
+void nxtSend(const char* cmd) {
+  Serial1.print(cmd);
+  Serial1.write(0xFF);
+  Serial1.write(0xFF);
+  Serial1.write(0xFF);
+}
+
+void nxtSetNames() {
+  for (int i = 0; i < NUM_PORTS; i++) {
+    char cmd[48];
+    snprintf(cmd, sizeof(cmd), "t%d.txt=\"%s\"", i + 1, g_antName[i]);
+    nxtSend(cmd);
+  }
+}
+
+void nxtSetBand(const char* band) {
+  char cmd[32];
+  snprintf(cmd, sizeof(cmd), "tBand.txt=\"%s\"", strlen(band) ? band : "--");
+  nxtSend(cmd);
+}
+
+void nxtSetIP() {
+  char cmd[48];
+  snprintf(cmd, sizeof(cmd), "tIP.txt=\"%s\"", WiFi.localIP().toString().c_str());
+  nxtSend(cmd);
+}
+
+void nxtSetPort(int port) {
+  for (int i = 1; i <= 8; i++) {
+    char cmd[20];
+    snprintf(cmd, sizeof(cmd), "bt%d.val=%d", i, (port == i) ? 1 : 0);
+    nxtSend(cmd);
+  }
+}
+
+void nxtInit() {
+  Serial1.begin(NXT_BAUD);
+  delay(200);
+  // Push all state to page 1 before switching to it
+  nxtSetNames();
+  nxtSetBand(g_band);
+  nxtSetIP();
+  nxtSetPort(g_activePort);
+  // Advance past splash screen (page 0) to main page
+  nxtSend("page 1");
+}
+
+void nxtLoop() {
+  // Nextion touch event: 0x65 page comp event 0xFF 0xFF 0xFF (7 bytes)
+  while (Serial1.available() >= 7) {
+    if (Serial1.peek() != 0x65) { Serial1.read(); continue; }
+    uint8_t buf[7];
+    Serial1.readBytes(buf, 7);
+    if (buf[3] != 0x01) continue;           // press only, ignore release
+    if (buf[1] != NXT_PAGE_MAIN) continue;  // page 1 only
+
+    uint8_t comp = buf[2];
+    int port = 0;
+    if      (comp == NXT_BTN1_ID) port = 1;
+    else if (comp == NXT_BTN2_ID) port = 2;
+    else if (comp == NXT_BTN3_ID) port = 3;
+    else if (comp == NXT_BTN4_ID) port = 4;
+    else if (comp == NXT_BTN5_ID) port = 5;
+    else if (comp == NXT_BTN6_ID) port = 6;
+    else if (comp == NXT_BTN7_ID) port = 7;
+    else if (comp == NXT_BTN8_ID) port = 8;
+
+    if (port > 0 && port <= NUM_PORTS)
+      selectPort(g_activePort == port ? 0 : port);  // tap active = deselect
   }
 }
 
@@ -1088,6 +1179,7 @@ void setup() {
   Serial.print(F("SSID: ")); Serial.println(g_ssid);
 
   connectWifi();
+  nxtInit();
 
   if (WiFi.status() == WL_CONNECTED) {
     httpServer.begin();
@@ -1130,4 +1222,5 @@ void loop() {
 
   agLoop();
   flexLoop();
+  nxtLoop();
 }
