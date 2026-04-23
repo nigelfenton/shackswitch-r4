@@ -855,6 +855,83 @@ void sendSettingsPage(WiFiClient& c) {
     "</script></body></html>"));
 }
 
+// ── HTTP: Nextion layout templates (800×480, screenshot for HMI button images) ─
+void sendNextionTemplate(WiFiClient& c, bool allOn) {
+  c.print(F("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n"));
+  c.print(F("<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+    "<title>Nextion Template</title><style>"
+    "*{box-sizing:border-box;margin:0;padding:0}"
+    "body{width:800px;height:480px;overflow:hidden;"
+    "background:#09101f;color:#dde6f0;"
+    "font-family:'Segoe UI',sans-serif;padding:12px;"
+    "display:flex;flex-direction:column;gap:8px}"
+    ".hdr{display:flex;justify-content:space-between;"
+    "align-items:center;height:44px;flex-shrink:0}"
+    ".title{color:#00d8ef;font-size:18px;font-weight:bold}"
+    ".sub{color:#6b8099;font-size:12px;margin-top:2px}"
+    ".clk{color:#00d8ef;font-size:26px;font-weight:bold}"
+    ".band{flex-shrink:0;height:40px;background:#0d1628;"
+    "border:1px solid #1c2a40;border-radius:6px;"
+    "display:flex;align-items:center;padding:0 16px;gap:14px}"
+    ".blbl{color:#6b8099;font-size:10px;text-transform:uppercase;"
+    "letter-spacing:1px}"
+    ".bval{color:#00d8ef;font-size:22px;font-weight:bold}"
+    ".grid{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}"
+    ".btn{background:#0f1e30;border:1px solid #1c2a40;border-radius:6px;"
+    "display:flex;flex-direction:column;align-items:center;"
+    "justify-content:center;gap:8px}"
+    ".btn.on{background:#0a2a2e;border:2px solid #00d8ef}"
+    ".bport{font-size:13px;font-weight:bold;"
+    "text-transform:uppercase;letter-spacing:1px}"
+    ".bport.off{color:#6b8099}"
+    ".bport.on{color:#00d8ef}"
+    ".st{flex-shrink:0;height:20px;display:flex;align-items:center}"
+    ".st span{color:#6b8099;font-size:11px}"
+    "</style></head><body>"));
+
+  // Header
+  c.print(F("<div class='hdr'><div>"
+    "<div class='title'>G0JKN ShackSwitch &mdash; 1&times;4</div>"
+    "<div class='sub'>"));
+  c.print(WiFi.localIP().toString());
+  c.print(F("</div></div><div class='clk' id='clk'>--:--z</div></div>"));
+
+  // Band bar
+  c.print(F("<div class='band'>"
+    "<span class='blbl'>Active Band</span>"
+    "<span class='bval'>&mdash;</span></div>"));
+
+  // Two rows of 4 buttons — port number only, name area left blank for Nextion text overlay
+  for (int row = 0; row < 2; row++) {
+    c.print(F("<div class='grid'>"));
+    for (int col = 0; col < 4; col++) {
+      int i = row * 4 + col + 1;
+      c.print(F("<div class='btn"));
+      if (allOn) c.print(F(" on"));
+      c.print(F("'>"
+        "<div style='height:40px'></div>"));  // blank space for antenna name overlay
+      c.print(F("<div class='bport "));
+      c.print(allOn ? F("on") : F("off"));
+      c.print(F("'>Port "));
+      c.print(i);
+      c.print(F("</div></div>"));
+    }
+    c.print(F("</div>"));
+  }
+
+  // Status bar
+  c.print(F("<div class='st'><span>"));
+  c.print(allOn ? F("ALL ON &mdash; active button template") : F("ALL OFF &mdash; inactive button template"));
+  c.print(F(" &mdash; screenshot at 800&times;480</span></div>"
+    "<script>"
+    "function utc(){var d=new Date();"
+    "var h=('0'+d.getUTCHours()).slice(-2);"
+    "var m=('0'+d.getUTCMinutes()).slice(-2);"
+    "document.getElementById('clk').textContent=h+':'+m+'z';}"
+    "utc();setInterval(utc,30000);"
+    "</script></body></html>"));
+}
+
 // ── HTTP request handler ───────────────────────────────────────────────────────
 void handleHttp(WiFiClient& client) {
   unsigned long t = millis();
@@ -967,6 +1044,12 @@ void handleHttp(WiFiClient& client) {
       Serial.print(F(" @ ")); Serial.println(g_flexIP);
     }
     httpRedirect(client, "/settings#radios");
+
+  } else if (path == "/nextion/off") {
+    sendNextionTemplate(client, false);
+
+  } else if (path == "/nextion/on") {
+    sendNextionTemplate(client, true);
 
   } else if (path == "/reset") {
     selectPort(0);
