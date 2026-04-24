@@ -431,7 +431,7 @@ void agLoop() {
     bcast[3] = 255;  // assumes /24 subnet — works for 10.0.0.x
     char beacon[128];
     snprintf(beacon, sizeof(beacon),
-      "AG ip=%s port=%d v=1.0 serial=G0JKN-SS-R4 name=ShackSwitch ports=1 antennas=%d\r\n",
+      "AG ip=%s port=%d v=1.0 serial=G0JKN-SS-R4 name=ShackSwitch ports=1 antennas=%d webport=8080\r\n",
       WiFi.localIP().toString().c_str(), AG_PORT, NUM_PORTS);
     agUdp.beginPacket(bcast, AG_PORT);
     agUdp.print(beacon);
