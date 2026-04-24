@@ -310,12 +310,19 @@ uint16_t antennaBandMask(int portNum) {
   return mask ? mask : 0x07FF;  // 0x07FF = all 11 bands if unmapped
 }
 
+// Returns the AG protocol band ID (1-based) for the current band, or 0 if none.
+int agBandId() {
+  if (!strlen(g_band)) return 0;
+  int idx = bandIndex(g_band);
+  return (idx >= 0) ? idx + 1 : 0;
+}
+
 void agPushStatus() {
   if (!agSubscribed || !agClient.connected()) return;
   char buf[80];
   snprintf(buf, sizeof(buf),
-    "S0|port 1 band=%s rxant=%d txant=%d tx=0 inhibit=0\r\n",
-    strlen(g_band) ? g_band : "none", g_activePort, g_activePort);
+    "S0|port 1 auto=1 source=AUTO band=%d rxant=%d txant=%d tx=0 inhibit=0\r\n",
+    agBandId(), g_activePort, g_activePort);
   agClient.print(buf);
 }
 
@@ -335,32 +342,45 @@ void handleAgCommand(const String& raw) {
   } else if (cmd == "antenna list") {
     for (int i = 0; i < NUM_PORTS; i++) {
       uint16_t mask = antennaBandMask(i + 1);
-      snprintf(r, sizeof(r), "R%d|00|id=%d name=%s rx=%04X tx=%04X\r\n",
-               seq, i + 1, g_antName[i], mask, mask);
+      // Replace spaces with underscores — AetherSDR reverses this on display
+      char safeName[21];
+      strncpy(safeName, g_antName[i], sizeof(safeName) - 1);
+      safeName[20] = '\0';
+      for (int j = 0; safeName[j]; j++) if (safeName[j] == ' ') safeName[j] = '_';
+      snprintf(r, sizeof(r), "R%d|00|antenna %d name=%s tx=%04X rx=%04X inband=0000\r\n",
+               seq, i + 1, safeName, mask, mask);
       agClient.print(r);
     }
     snprintf(r, sizeof(r), "R%d|00|\r\n", seq);
     agClient.print(r);
 
   } else if (cmd == "band list") {
+    // Band 0 = no band (required by AetherSDR)
+    snprintf(r, sizeof(r), "R%d|00|band 0 name=None freq_start=0.000 freq_stop=0.000\r\n", seq);
+    agClient.print(r);
+    // Bands 1..NUM_BANDS map to BANDS[0..NUM_BANDS-1]; frequencies in MHz
     for (int i = 0; i < NUM_BANDS; i++) {
-      snprintf(r, sizeof(r), "R%d|00|id=%d name=%s lo=%ld hi=%ld\r\n",
+      snprintf(r, sizeof(r), "R%d|00|band %d name=%s freq_start=%.3f freq_stop=%.3f\r\n",
                seq, i + 1, BANDS[i].name,
-               BANDS[i].lo * 1000L, BANDS[i].hi * 1000L);
+               BANDS[i].lo / 1000.0f, BANDS[i].hi / 1000.0f);
       agClient.print(r);
     }
     snprintf(r, sizeof(r), "R%d|00|\r\n", seq);
     agClient.print(r);
 
   } else if (cmd.startsWith("port get")) {
-    snprintf(r, sizeof(r),
-      "R%d|00|id=1 auto=1 band=%s rxant=%d txant=%d tx=0 inhibited=0\r\n",
-      seq, strlen(g_band) ? g_band : "none", g_activePort, g_activePort);
-    agClient.print(r);
+    // Extract requested port number; R4 only has port 1
+    int portNum = cmd.substring(9).toInt();
+    if (portNum == 1) {
+      snprintf(r, sizeof(r),
+        "R%d|00|port 1 auto=1 source=AUTO band=%d rxant=%d txant=%d tx=0 inhibit=0\r\n",
+        seq, agBandId(), g_activePort, g_activePort);
+      agClient.print(r);
+    }
     snprintf(r, sizeof(r), "R%d|00|\r\n", seq);
     agClient.print(r);
 
-  } else if (cmd.startsWith("subscribe")) {
+  } else if (cmd.startsWith("sub ") || cmd.startsWith("subscribe")) {
     agSubscribed = true;
     snprintf(r, sizeof(r), "R%d|00|ok\r\n", seq);
     agClient.print(r);
