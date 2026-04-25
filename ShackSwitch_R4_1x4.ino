@@ -652,15 +652,19 @@ void nxtInit() {
 
 void nxtLoop() {
   // Parse 4-byte printh sequences: 0x23 0x02 0x54 NN
-  // Sent by HMI button Touch Release events. NN = port 0x01–0x08.
+  // Sent by HMI button Touch Release events.
+  // NN 0x01–0x08 = port select; 0x30 = skip splash → go to main page.
   while (Serial1.available() >= 4) {
     if (Serial1.peek() != 0x23) { Serial1.read(); continue; }
     uint8_t buf[4];
     Serial1.readBytes(buf, 4);
     if (buf[1] != 0x02 || buf[2] != 0x54) continue;
-    int port = buf[3];
-    if (port >= 1 && port <= NUM_PORTS)
-      selectPort(g_activePort == port ? 0 : port);  // tap active port = deselect
+    uint8_t nn = buf[3];
+    if (nn == 0x30) {
+      nxtSend("page page1");   // skip splash — full init fires when WiFi connects
+    } else if (nn >= 1 && nn <= NUM_PORTS) {
+      selectPort(g_activePort == nn ? 0 : nn);  // tap active port = deselect
+    }
   }
 }
 
