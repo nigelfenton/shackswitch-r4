@@ -632,10 +632,10 @@ void nxtInit() {
   delay(100);
   nxtSend("t0.txt=\"G0JKN ShackSwitch v1.5\"");
   nxtSend("t1.txt=\"1 x 4\"");
-  // Push antenna names into dual-state button bt attribute (components named bt0–bt3)
+  // Push antenna names — dual-state buttons use .txt at protocol level (bt_maxl=15)
   for (int i = 0; i < NUM_PORTS; i++) {
     char cmd[40];
-    snprintf(cmd, sizeof(cmd), "bt%d.bt=\"%s\"", i, g_antName[i]);
+    snprintf(cmd, sizeof(cmd), "bt%d.txt=\"%.15s\"", i, g_antName[i]);
     nxtSend(cmd);
   }
   // Hide unused button slots (HMI has 8 slots; R4 uses NUM_PORTS of them)
