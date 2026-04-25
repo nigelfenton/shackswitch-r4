@@ -580,19 +580,12 @@ void flexLoop() {
 }
 
 // ── Nextion display driver (Serial1 = D0/D1, page 0 = splash, page 1 = main) ──
+// Touch events use printh 23 02 54 NN in HMI Touch Release — NOT standard 0x65 events.
+// NN = port number 0x01–0x08.  ON pic = 1, OFF pic = 2 (HMI image library IDs).
 
-#define NXT_BAUD 9600
-
-// Component IDs on page 1 — update to match actual HMI after building in Nextion Editor
-#define NXT_PAGE_MAIN   1
-#define NXT_BTN1_ID     1   // bt1
-#define NXT_BTN2_ID     2   // bt2
-#define NXT_BTN3_ID     3   // bt3
-#define NXT_BTN4_ID     4   // bt4
-#define NXT_BTN5_ID     5   // bt5
-#define NXT_BTN6_ID     6   // bt6
-#define NXT_BTN7_ID     7   // bt7
-#define NXT_BTN8_ID     8   // bt8
+#define NXT_BAUD    9600
+#define NXT_PIC_ON  1
+#define NXT_PIC_OFF 2
 
 void nxtSend(const char* cmd) {
   Serial1.print(cmd);
@@ -601,68 +594,54 @@ void nxtSend(const char* cmd) {
   Serial1.write(0xFF);
 }
 
-void nxtSetNames() {
-  for (int i = 0; i < NUM_PORTS; i++) {
-    char cmd[48];
-    snprintf(cmd, sizeof(cmd), "t%d.txt=\"%s\"", i + 1, g_antName[i]);
-    nxtSend(cmd);
-  }
-}
-
 void nxtSetBand(const char* band) {
+  // tBand not on new page 1 — kept for future use, silently ignored if absent
   char cmd[32];
   snprintf(cmd, sizeof(cmd), "tBand.txt=\"%s\"", strlen(band) ? band : "--");
   nxtSend(cmd);
 }
 
-void nxtSetIP() {
-  char cmd[48];
-  snprintf(cmd, sizeof(cmd), "tIP.txt=\"%s\"", WiFi.localIP().toString().c_str());
-  nxtSend(cmd);
-}
-
 void nxtSetPort(int port) {
+  // Set b0–b7 .pic and .pic2 to ON or OFF image based on active port.
+  // Both attributes written so button image is consistent in released and pressed states.
   for (int i = 1; i <= 8; i++) {
-    char cmd[20];
-    snprintf(cmd, sizeof(cmd), "bt%d.val=%d", i, (port == i) ? 1 : 0);
+    int pic = (port == i) ? NXT_PIC_ON : NXT_PIC_OFF;
+    char cmd[24];
+    snprintf(cmd, sizeof(cmd), "b%d.pic=%d", i - 1, pic);
+    nxtSend(cmd);
+    snprintf(cmd, sizeof(cmd), "b%d.pic2=%d", i - 1, pic);
     nxtSend(cmd);
   }
 }
 
 void nxtInit() {
-  Serial1.begin(NXT_BAUD);
-  delay(200);
-  // Push all state to page 1 before switching to it
-  nxtSetNames();
-  nxtSetBand(g_band);
-  nxtSetIP();
-  nxtSetPort(g_activePort);
-  // Advance past splash screen (page 0) to main page
+  // Serial1 already started in setup() before connectWifi() so splash shows during boot.
+  // Here we switch from splash to page 1 and push initial state.
   nxtSend("page 1");
+  delay(500);
+  nxtSend("page 1");   // second send — guards against Nextion missing it on warm reboot
+  delay(100);
+  nxtSend("t0.txt=\"G0JKN ShackSwitch v1.5\"");
+  nxtSend("t1.txt=\"1 x 4\"");
+  for (int i = 0; i < 8; i++) {
+    char cmd[16];
+    snprintf(cmd, sizeof(cmd), "b%d.txt=\"\"", i);
+    nxtSend(cmd);
+  }
+  nxtSetPort(g_activePort);
 }
 
 void nxtLoop() {
-  // Nextion touch event: 0x65 page comp event 0xFF 0xFF 0xFF (7 bytes)
-  while (Serial1.available() >= 7) {
-    if (Serial1.peek() != 0x65) { Serial1.read(); continue; }
-    uint8_t buf[7];
-    Serial1.readBytes(buf, 7);
-    if (buf[3] != 0x01) continue;           // press only, ignore release
-    if (buf[1] != NXT_PAGE_MAIN) continue;  // page 1 only
-
-    uint8_t comp = buf[2];
-    int port = 0;
-    if      (comp == NXT_BTN1_ID) port = 1;
-    else if (comp == NXT_BTN2_ID) port = 2;
-    else if (comp == NXT_BTN3_ID) port = 3;
-    else if (comp == NXT_BTN4_ID) port = 4;
-    else if (comp == NXT_BTN5_ID) port = 5;
-    else if (comp == NXT_BTN6_ID) port = 6;
-    else if (comp == NXT_BTN7_ID) port = 7;
-    else if (comp == NXT_BTN8_ID) port = 8;
-
-    if (port > 0 && port <= NUM_PORTS)
-      selectPort(g_activePort == port ? 0 : port);  // tap active = deselect
+  // Parse 4-byte printh sequences: 0x23 0x02 0x54 NN
+  // Sent by HMI button Touch Release events. NN = port 0x01–0x08.
+  while (Serial1.available() >= 4) {
+    if (Serial1.peek() != 0x23) { Serial1.read(); continue; }
+    uint8_t buf[4];
+    Serial1.readBytes(buf, 4);
+    if (buf[1] != 0x02 || buf[2] != 0x54) continue;
+    int port = buf[3];
+    if (port >= 1 && port <= NUM_PORTS)
+      selectPort(g_activePort == port ? 0 : port);  // tap active port = deselect
   }
 }
 
@@ -1198,8 +1177,12 @@ void setup() {
   loadConfig();
   Serial.print(F("SSID: ")); Serial.println(g_ssid);
 
+  Serial1.begin(NXT_BAUD);
+  delay(200);
+  nxtSend("page 0");   // force splash — visible while WiFi connects (~15s)
+
   connectWifi();
-  nxtInit();
+  nxtInit();           // switch to page 1, push initial state
 
   if (WiFi.status() == WL_CONNECTED) {
     httpServer.begin();
