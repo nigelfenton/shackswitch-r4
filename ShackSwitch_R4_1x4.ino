@@ -57,7 +57,8 @@ const int RELAY_PINS[4] = {2, 3, 4, 5};   // D2 = port 1 ... D5 = port 4
 #define E_BANDMAP      212          // NUM_BANDS bytes = 11
 #define E_FLEX_IP      223          // 16 bytes — selected radio IP
 #define E_FLEX_NAME    239          // 20 bytes — selected radio display name
-// total used: 259 bytes
+#define E_ACTIVE_PORT  259          //  1 byte  — last selected port (0 = all off)
+// total used: 260 bytes
 
 // ── Band table ─────────────────────────────────────────────────────────────────
 struct Band { const char* name; long lo; long hi; };  // kHz
@@ -149,6 +150,10 @@ void saveFlexConfig() {
   eepromWriteStr(E_FLEX_NAME, g_flexName, 20);
 }
 
+void saveActivePort() {
+  EEPROM.write(E_ACTIVE_PORT, (uint8_t)g_activePort);
+}
+
 void saveConfig() {
   eepromWriteU32(E_MAGIC, MAGIC_VALUE);
   eepromWriteStr(E_SSID, g_ssid, 64);
@@ -180,6 +185,9 @@ void loadConfig() {
   eepromReadStr(E_FLEX_NAME, g_flexName, sizeof(g_flexName));
   if ((uint8_t)g_flexIP[0]   >= 0xFE) g_flexIP[0]   = '\0';
   if ((uint8_t)g_flexName[0] >= 0xFE) g_flexName[0] = '\0';
+  // Active port — appended field, safe without magic bump
+  uint8_t ap = EEPROM.read(E_ACTIVE_PORT);
+  g_activePort = (ap >= 1 && ap <= NUM_PORTS) ? (int)ap : 0;
 }
 
 // ── LED matrix ─────────────────────────────────────────────────────────────────
@@ -219,6 +227,7 @@ void selectPort(int port) {
   for (int i = 0; i < NUM_PORTS; i++)
     digitalWrite(RELAY_PINS[i], (port == i + 1) ? HIGH : LOW);
   g_activePort = port;
+  saveActivePort();
   updateMatrix(port);
   nxtSetPort(port);
   agPushStatus();
@@ -623,9 +632,10 @@ void nxtInit() {
   delay(100);
   nxtSend("t0.txt=\"G0JKN ShackSwitch v1.5\"");
   nxtSend("t1.txt=\"1 x 4\"");
+  // Push antenna names into dual-state button bt attribute
   for (int i = 0; i < NUM_PORTS; i++) {
-    char cmd[16];
-    snprintf(cmd, sizeof(cmd), "b%d.txt=\"\"", i);
+    char cmd[40];
+    snprintf(cmd, sizeof(cmd), "b%d.bt=\"%s\"", i, g_antName[i]);
     nxtSend(cmd);
   }
   // Hide unused button slots (HMI has 8 slots; R4 uses NUM_PORTS of them)
@@ -634,7 +644,10 @@ void nxtInit() {
     snprintf(cmd, sizeof(cmd), "vis b%d,0", i);
     nxtSend(cmd);
   }
-  nxtSetPort(g_activePort);
+  // Restore relay to last saved port (0 = all off is safe default)
+  selectPort(g_activePort);
+  Serial.print(F("Nextion init — restoring port "));
+  Serial.println(g_activePort);
 }
 
 void nxtLoop() {
