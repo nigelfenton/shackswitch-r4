@@ -581,11 +581,11 @@ void flexLoop() {
 
 // ── Nextion display driver (Serial1 = D0/D1, page 0 = splash, page 1 = main) ──
 // Touch events use printh 23 02 54 NN in HMI Touch Release — NOT standard 0x65 events.
-// NN = port number 0x01–0x08.  ON pic = 1, OFF pic = 2 (HMI image library IDs).
+// NN = port number 0x01–0x08.  ON pic = 5, OFF pic = 14 (HMI image library IDs).
 
 #define NXT_BAUD    9600
-#define NXT_PIC_ON  1
-#define NXT_PIC_OFF 2
+#define NXT_PIC_ON  5
+#define NXT_PIC_OFF 14
 
 void nxtSend(const char* cmd) {
   Serial1.print(cmd);
@@ -602,9 +602,9 @@ void nxtSetBand(const char* band) {
 }
 
 void nxtSetPort(int port) {
-  // Set b0–b7 .pic and .pic2 to ON or OFF image based on active port.
+  // Set b0–b(NUM_PORTS-1) .pic and .pic2 to ON or OFF image based on active port.
   // Both attributes written so button image is consistent in released and pressed states.
-  for (int i = 1; i <= 8; i++) {
+  for (int i = 1; i <= NUM_PORTS; i++) {
     int pic = (port == i) ? NXT_PIC_ON : NXT_PIC_OFF;
     char cmd[24];
     snprintf(cmd, sizeof(cmd), "b%d.pic=%d", i - 1, pic);
@@ -623,9 +623,15 @@ void nxtInit() {
   delay(100);
   nxtSend("t0.txt=\"G0JKN ShackSwitch v1.5\"");
   nxtSend("t1.txt=\"1 x 4\"");
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < NUM_PORTS; i++) {
     char cmd[16];
     snprintf(cmd, sizeof(cmd), "b%d.txt=\"\"", i);
+    nxtSend(cmd);
+  }
+  // Hide unused button slots (HMI has 8 slots; R4 uses NUM_PORTS of them)
+  for (int i = NUM_PORTS; i < 8; i++) {
+    char cmd[16];
+    snprintf(cmd, sizeof(cmd), "vis b%d,0", i);
     nxtSend(cmd);
   }
   nxtSetPort(g_activePort);
