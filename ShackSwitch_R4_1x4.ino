@@ -611,14 +611,14 @@ void nxtSetBand(const char* band) {
 }
 
 void nxtSetPort(int port) {
-  // Set b0–b(NUM_PORTS-1) .pic and .pic2 to ON or OFF image based on active port.
+  // Set bt0–bt(NUM_PORTS-1) .pic and .pic2 to ON or OFF image based on active port.
   // Both attributes written so button image is consistent in released and pressed states.
   for (int i = 1; i <= NUM_PORTS; i++) {
     int pic = (port == i) ? NXT_PIC_ON : NXT_PIC_OFF;
     char cmd[24];
-    snprintf(cmd, sizeof(cmd), "b%d.pic=%d", i - 1, pic);
+    snprintf(cmd, sizeof(cmd), "bt%d.pic=%d", i - 1, pic);
     nxtSend(cmd);
-    snprintf(cmd, sizeof(cmd), "b%d.pic2=%d", i - 1, pic);
+    snprintf(cmd, sizeof(cmd), "bt%d.pic2=%d", i - 1, pic);
     nxtSend(cmd);
   }
 }
@@ -632,16 +632,16 @@ void nxtInit() {
   delay(100);
   nxtSend("t0.txt=\"G0JKN ShackSwitch v1.5\"");
   nxtSend("t1.txt=\"1 x 4\"");
-  // Push antenna names into dual-state button bt attribute
+  // Push antenna names into dual-state button bt attribute (components named bt0–bt3)
   for (int i = 0; i < NUM_PORTS; i++) {
     char cmd[40];
-    snprintf(cmd, sizeof(cmd), "b%d.bt=\"%s\"", i, g_antName[i]);
+    snprintf(cmd, sizeof(cmd), "bt%d.bt=\"%s\"", i, g_antName[i]);
     nxtSend(cmd);
   }
   // Hide unused button slots (HMI has 8 slots; R4 uses NUM_PORTS of them)
   for (int i = NUM_PORTS; i < 8; i++) {
     char cmd[16];
-    snprintf(cmd, sizeof(cmd), "vis b%d,0", i);
+    snprintf(cmd, sizeof(cmd), "vis bt%d,0", i);
     nxtSend(cmd);
   }
   // Restore relay to last saved port (0 = all off is safe default)
