@@ -13,6 +13,11 @@
  *   HTTP  port 8080   — web UI + REST API
  *   TCP   port 9007 — 4O3A Antenna Genius protocol (AetherSDR)
  *   UDP   port 9007 — discovery beacon every 5 s
+ *   mDNS  _tci._tcp.local — DNS-SD advertise self per
+ *                           github.com/ten9876/AetherSDR/docs/tci-discovery.md
+ *                           class=antenna-switch, model=shackswitch-r4-1x4,
+ *                           SRV port 0 (no TCI server; informational only).
+ *                           Coexists with the AG broadcast above.
  *
  * REST endpoints
  *   GET /                                  — status page
@@ -35,6 +40,7 @@
 #include <WiFiS3.h>
 #include <EEPROM.h>
 #include "Arduino_LED_Matrix.h"
+#include "mdns_tci.h"
 
 // ── Edit before first flash ────────────────────────────────────────────────────
 #define DEFAULT_SSID     "tinkerbell"
@@ -91,6 +97,13 @@ WiFiServer agServer(AG_PORT);
 WiFiUDP    agUdp;
 WiFiClient agClient;
 bool       agSubscribed = false;
+
+// mDNS / DNS-SD advertiser — announces this switch on the LAN per the
+// _tci._tcp.local schema (ten9876/AetherSDR docs/tci-discovery.md).  Owns
+// its own WiFiUDP socket bound to 5353 — independent of agUdp on 9008
+// and the AG TCP server on 9007.  Brought up in setup() after WiFi
+// associates; polled from loop().
+TciMdnsAdvertiser mdns;
 
 unsigned long lastBeacon    = 0;
 unsigned long lastWifiCheck = 0;
@@ -1224,6 +1237,16 @@ void setup() {
     Serial.println(AG_PORT);
     if (g_flexIP[0])  { Serial.print(F("Flex:   ")); Serial.println(g_flexIP); }
     else                Serial.println(F("Flex:   auto-discovering..."));
+
+    // Announce ourselves over mDNS / DNS-SD.  Port 0 = no TCI server;
+    // AetherSDR continues to discover us via the AG UDP beacon above.
+    // Revisit if/when ShackSwitch grows a real TCI endpoint.
+    mdns.begin(/*model*/      "shackswitch-r4-1x4",
+               /*class*/      "antenna-switch",
+               /*tciVersion*/ "1.9",
+               /*instance*/   "ShackSwitch R4 G0JKN",
+               /*hostname*/   "shackswitch-r4-g0jkn",
+               /*tciPort*/    0);
   }
 }
 
@@ -1249,4 +1272,5 @@ void loop() {
   agLoop();
   flexLoop();
   nxtLoop();
+  mdns.loop();
 }
